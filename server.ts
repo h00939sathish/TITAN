@@ -1180,9 +1180,12 @@ async function startServer() {
     const target = (
       validTargets.has(rawTarget) ? rawTarget : 'all'
     ) as 'all' | 'sleeve-a' | 'sleeve-b' | 'sleeve-c' | 'sleeve-d';
+    const rawMode = req.body?.mode;
+    const modeOverride =
+      rawMode === 'live_paper' || rawMode === 'dry_run' ? rawMode : undefined;
 
     try {
-      const engine = await autoEngine.runCycle('cron', target);
+      const engine = await autoEngine.runCycle('cron', target, modeOverride);
       res.json({ ok: true, engine });
     } catch (err) {
       res.status(409).json({

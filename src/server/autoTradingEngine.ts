@@ -97,7 +97,10 @@ export function verifyCronBearerToken(authHeader: string | undefined): {
 export class AutoTradingEngine {
   private config: AutoEngineConfig = {
     enabled: false,
-    executionMode: 'dry_run',
+    executionMode:
+      (process.env.ENGINE_DEFAULT_MODE || '').trim() === 'live_paper'
+        ? 'live_paper'
+        : 'dry_run',
     intervalMinutes: 15,
     perSleeveAllocationPct: 5,
     maxTradeNotionalUsd: 2500,
@@ -523,7 +526,8 @@ export class AutoTradingEngine {
   private async maybeExecuteSignal(
     signal: LiveSignalEvaluation,
     trigger: EngineTriggerSource,
-    isCrypto: boolean
+    isCrypto: boolean,
+    effectiveMode: 'dry_run' | 'live_paper' = this.config.executionMode
   ): Promise<void> {
     const runtime = this.deps.getCurrentState();
     const creds = this.deps.getAlpacaCredentials();
@@ -535,7 +539,7 @@ export class AutoTradingEngine {
         id: `run-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`,
         timestampUtc: nowUtc,
         trigger,
-        executionMode: this.config.executionMode,
+        executionMode: effectiveMode,
         sleeveId: signal.sleeveId,
         sleeveCode: signal.sleeveCode,
         symbol: signal.symbol,
@@ -646,7 +650,7 @@ export class AutoTradingEngine {
     }
 
     // Dry-run mode evaluates live data & computes exact order sizing without routing to broker
-    if (this.config.executionMode === 'dry_run') {
+    if (effectiveMode === 'dry_run') {
       this.pushHistory({
         id: `run-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`,
         timestampUtc: nowUtc,
@@ -777,12 +781,14 @@ export class AutoTradingEngine {
 
   public async runCycle(
     trigger: EngineTriggerSource,
-    targetSleeve: 'all' | 'sleeve-a' | 'sleeve-b' | 'sleeve-c' | 'sleeve-d' = 'all'
+    targetSleeve: 'all' | 'sleeve-a' | 'sleeve-b' | 'sleeve-c' | 'sleeve-d' = 'all',
+    modeOverride?: 'dry_run' | 'live_paper'
   ): Promise<EngineStatusPayload> {
     if (this.isRunningCycle) {
       throw new Error('An automated trading cycle is already running.');
     }
 
+    const effectiveMode = modeOverride ?? this.config.executionMode;
     this.isRunningCycle = true;
     const nowUtc = new Date().toISOString();
 
@@ -821,7 +827,7 @@ export class AutoTradingEngine {
               nowUtc,
             });
             evaluatedMap.set(`sleeve-b:${sym}`, sig);
-            await this.maybeExecuteSignal(sig, trigger, true);
+            await this.maybeExecuteSignal(sig, trigger, true, effectiveMode);
           }
         } catch (err) {
           for (const sym of CRYPTO_UNIVERSE) {
@@ -843,7 +849,7 @@ export class AutoTradingEngine {
               evaluatedAtUtc: nowUtc,
             };
             evaluatedMap.set(`sleeve-b:${sym}`, failedSig);
-            await this.maybeExecuteSignal(failedSig, trigger, true);
+            await this.maybeExecuteSignal(failedSig, trigger, true, effectiveMode);
           }
         }
       }
@@ -879,7 +885,7 @@ export class AutoTradingEngine {
             nowUtc,
           });
           evaluatedMap.set(`sleeve-a:${sym}`, sig);
-          await this.maybeExecuteSignal(sig, trigger, false);
+          await this.maybeExecuteSignal(sig, trigger, false, effectiveMode);
         }
       }
 
@@ -899,7 +905,7 @@ export class AutoTradingEngine {
           nowUtc,
         });
         evaluatedMap.set('sleeve-c:SPY', sig);
-        await this.maybeExecuteSignal(sig, trigger, false);
+        await this.maybeExecuteSignal(sig, trigger, false, effectiveMode);
       }
 
       // 4. Sleeve D: India NIFTY 50 (Live DhanHQ fundlimit + NSE IST window + ₹1,00,000 cap)
@@ -918,7 +924,7 @@ export class AutoTradingEngine {
           nowUtc,
         });
         evaluatedMap.set('sleeve-d:NIFTY50', sig);
-        await this.maybeExecuteSignal(sig, trigger, false);
+        await this.maybeExecuteSignal(sig, trigger, false, effectiveMode);
       }
 
       this.latestSignals = Array.from(evaluatedMap.values());
@@ -931,7 +937,7 @@ export class AutoTradingEngine {
       this.deps.appendLog(
         'INFO',
         'Auto Engine',
-        `Completed ${trigger} cycle (${targetSleeve}, ${this.config.executionMode === 'live_paper' ? 'Live Paper' : 'Dry-Run'}) — evaluated ${this.latestSignals.length} live instruments.`
+        `Completed ${trigger} cycle (${targetSleeve}, ${effectiveMode === 'live_paper' ? 'Live Paper' : 'Dry-Run'}) — evaluated ${this.latestSignals.length} live instruments.`
       );
 
       this.isRunningCycle = false;

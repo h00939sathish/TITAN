@@ -1,0 +1,65 @@
+name: Titan Quant 24/7 Paper Engine (Zero Billing)
+
+on:
+  schedule:
+    # 24/7 Crypto 4-hour candle close (BTC/USD, ETH/USD, SOL/USD)
+    - cron: "5 */4 * * *"
+    # US Equities & Defined-Risk Options during NYSE open (Mon-Fri)
+    - cron: "35 14,15 * * 1-5"
+    # India NIFTY 50 DhanHQ session check (Mon-Fri 09:35 IST = 04:05 UTC)
+    - cron: "5 4 * * 1-5"
+  workflow_dispatch:
+    inputs:
+      sleeve:
+        description: "Sleeve to run (all, sleeve-a, sleeve-b, sleeve-c, sleeve-d)"
+        required: true
+        default: "all"
+        type: choice
+        options:
+          - all
+          - sleeve-b
+          - sleeve-a
+          - sleeve-c
+          - sleeve-d
+      mode:
+        description: "Execution mode"
+        required: true
+        default: "live_paper"
+        type: choice
+        options:
+          - live_paper
+          - dry_run
+
+concurrency:
+  group: titan-quant-paper-engine
+  cancel-in-progress: false
+
+jobs:
+  run-trading-cycle:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js 22
+        uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+          cache: "npm"
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Execute Fail-Closed Paper Trading Cycle
+        env:
+          APCA_API_KEY_ID: ${{ secrets.APCA_API_KEY_ID }}
+          APCA_API_SECRET_KEY: ${{ secrets.APCA_API_SECRET_KEY }}
+          APCA_API_BASE_URL: "https://paper-api.alpaca.markets"
+          POLYGON_API_KEY: ${{ secrets.POLYGON_API_KEY }}
+          DHAN_CLIENT_ID: ${{ secrets.DHAN_CLIENT_ID }}
+          DHAN_ACCESS_TOKEN: ${{ secrets.DHAN_ACCESS_TOKEN }}
+        run: |
+          SLEEVE="${{ inputs.sleeve || 'all' }}"
+          MODE="${{ inputs.mode || 'live_paper' }}"
+          npx tsx scripts/run-cycle.ts --sleeve="$SLEEVE" --mode="$MODE" --cap=2500 --alloc=5

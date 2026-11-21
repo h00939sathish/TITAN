@@ -43,6 +43,36 @@ const SLEEVE_LABELS: {
   { id: 'sleeve-d', code: 'Sleeve D', label: 'India NIFTY 50 (DhanHQ)', schedule: 'NSE IST' },
 ];
 
+const GITHUB_DIRECT_YAML = `name: Titan Quant 24/7 Paper Engine (Zero Billing)
+
+on:
+  schedule:
+    - cron: "5 */4 * * *"      # 24/7 Crypto 4h EMA 12/48
+    - cron: "35 14,15 * * 1-5" # US Equities & Options open
+    - cron: "5 4 * * 1-5"      # India NSE NIFTY 50 session
+  workflow_dispatch:
+
+jobs:
+  run-trading-cycle:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+          cache: "npm"
+      - run: npm ci
+      - name: Run 4-Sleeve Fail-Closed Cycle
+        env:
+          APCA_API_KEY_ID: \${{ secrets.APCA_API_KEY_ID }}
+          APCA_API_SECRET_KEY: \${{ secrets.APCA_API_SECRET_KEY }}
+          APCA_API_BASE_URL: "https://paper-api.alpaca.markets"
+          POLYGON_API_KEY: \${{ secrets.POLYGON_API_KEY }}
+          DHAN_CLIENT_ID: \${{ secrets.DHAN_CLIENT_ID }}
+          DHAN_ACCESS_TOKEN: \${{ secrets.DHAN_ACCESS_TOKEN }}
+        run: npx tsx scripts/run-cycle.ts --sleeve=all --mode=live_paper --cap=2500
+`;
+
 const GITHUB_CRON_YAML = `name: Titan Quant 24/7 Cloud Loop
 
 on:
@@ -61,7 +91,7 @@ jobs:
           curl --fail-with-body -sS -X POST "\${{ secrets.TITAN_APP_URL }}/api/engine/cron" \\
             -H "Authorization: Bearer \${{ secrets.ENGINE_CRON_SECRET }}" \\
             -H "Content-Type: application/json" \\
-            -d '{"sleeve":"all"}'
+            -d '{"sleeve":"all","mode":"live_paper"}'
 `;
 
 function formatUtcShort(iso: string | null): string {
@@ -82,6 +112,7 @@ export function AutoTradingEngineView({
   onNotify,
 }: AutoTradingEngineViewProps) {
   const [copiedCron, setCopiedCron] = useState(false);
+  const [cronTab, setCronTab] = useState<'direct' | 'webhook'>('direct');
 
   const config: AutoEngineConfig = status?.config ?? {
     enabled: false,
@@ -101,11 +132,18 @@ export function AutoTradingEngineView({
   const signals = status?.latestSignals ?? [];
   const history = status?.runHistory ?? [];
 
+  const activeCronYaml =
+    cronTab === 'direct' ? GITHUB_DIRECT_YAML : GITHUB_CRON_YAML;
+
   const handleCopyCron = async () => {
     try {
-      await navigator.clipboard.writeText(GITHUB_CRON_YAML);
+      await navigator.clipboard.writeText(activeCronYaml);
       setCopiedCron(true);
-      onNotify('Copied 24/7 GitHub Actions webhook trigger YAML to clipboard.');
+      onNotify(
+        cronTab === 'direct'
+          ? 'Copied zero-billing GitHub Actions Direct Runner YAML.'
+          : 'Copied Cloud Run Webhook Cron YAML to clipboard.'
+      );
       window.setTimeout(() => setCopiedCron(false), 2200);
     } catch {
       onNotify('Clipboard unavailable — copy the YAML snippet manually.');
@@ -613,23 +651,65 @@ export function AutoTradingEngineView({
           </div>
 
           <div className="p-4 space-y-3 text-xs">
-            <p className="text-slate-600 dark:text-slate-400 leading-relaxed">
-              While this server is warm, the built-in <strong className="text-slate-800 dark:text-slate-200">Auto-Loop</strong> ticks automatically. To keep trading 24/7 for $0 even after closing your laptop and Cloud Run scales to zero, set <code className="font-mono text-[11px] text-blue-600 dark:text-blue-400">ENGINE_CRON_SECRET</code> in Secrets and add this GitHub Action:
-            </p>
-            <div className="flex items-center justify-between rounded-md border border-slate-200 dark:border-[#1E2633] bg-slate-50 dark:bg-[#0D1119] px-3 py-2 text-[11px]">
-              <span className="text-slate-500 dark:text-slate-400">Cron Secret Gate</span>
-              <span
-                className={`font-mono font-semibold ${
-                  status?.cronSecretConfigured
-                    ? 'text-emerald-600 dark:text-emerald-400'
-                    : 'text-amber-600 dark:text-amber-400'
+            <div
+              role="tablist"
+              aria-label="24/7 deployment method"
+              className="grid grid-cols-2 rounded-md border border-slate-200 dark:border-[#243045] bg-slate-100 dark:bg-[#0D1119] p-0.5"
+            >
+              <button
+                type="button"
+                role="tab"
+                aria-selected={cronTab === 'direct'}
+                onClick={() => setCronTab('direct')}
+                className={`rounded px-2 py-1 text-[11px] font-medium transition-colors ${
+                  cronTab === 'direct'
+                    ? 'bg-white dark:bg-[#1B2434] text-slate-950 dark:text-white shadow-2xs'
+                    : 'text-slate-600 hover:text-slate-900 dark:text-slate-400 dark:hover:text-slate-200'
                 }`}
               >
-                {status?.cronSecretConfigured ? 'Configured (Bearer Active)' : 'Not Set (Fail-Closed 503)'}
-              </span>
+                GitHub Direct ($0 · No Card)
+              </button>
+              <button
+                type="button"
+                role="tab"
+                aria-selected={cronTab === 'webhook'}
+                onClick={() => setCronTab('webhook')}
+                className={`rounded px-2 py-1 text-[11px] font-medium transition-colors ${
+                  cronTab === 'webhook'
+                    ? 'bg-white dark:bg-[#1B2434] text-slate-950 dark:text-white shadow-2xs'
+                    : 'text-slate-600 hover:text-slate-900 dark:text-slate-400 dark:hover:text-slate-200'
+                }`}
+              >
+                Cloud Run Webhook
+              </button>
             </div>
+
+            {cronTab === 'direct' ? (
+              <p className="text-slate-600 dark:text-slate-400 leading-relaxed">
+                <strong className="text-emerald-600 dark:text-emerald-400">Zero Google Cloud billing required:</strong> push this repo to GitHub and add your Alpaca/Polygon/Dhan keys under GitHub <strong className="text-slate-800 dark:text-slate-200">Settings → Secrets → Actions</strong>. The workflow is already included at <code className="font-mono text-[11px] text-blue-600 dark:text-blue-400">.github/workflows/titan-24-7-engine.yml</code>.
+              </p>
+            ) : (
+              <>
+                <p className="text-slate-600 dark:text-slate-400 leading-relaxed">
+                  For Cloud Run / Render hosted URLs, set <code className="font-mono text-[11px] text-blue-600 dark:text-blue-400">ENGINE_CRON_SECRET</code> in server secrets and trigger <code className="font-mono text-[11px] text-blue-600 dark:text-blue-400">POST /api/engine/cron</code>:
+                </p>
+                <div className="flex items-center justify-between rounded-md border border-slate-200 dark:border-[#1E2633] bg-slate-50 dark:bg-[#0D1119] px-3 py-2 text-[11px]">
+                  <span className="text-slate-500 dark:text-slate-400">Cron Secret Gate</span>
+                  <span
+                    className={`font-mono font-semibold ${
+                      status?.cronSecretConfigured
+                        ? 'text-emerald-600 dark:text-emerald-400'
+                        : 'text-amber-600 dark:text-amber-400'
+                    }`}
+                  >
+                    {status?.cronSecretConfigured ? 'Configured (Bearer Active)' : 'Not Set (Fail-Closed 503)'}
+                  </span>
+                </div>
+              </>
+            )}
+
             <pre className="rounded-md border border-slate-200 dark:border-[#1E2633] bg-slate-950 text-slate-200 p-3 text-[11px] font-mono overflow-x-auto leading-relaxed">
-              <code>{GITHUB_CRON_YAML}</code>
+              <code>{activeCronYaml}</code>
             </pre>
           </div>
         </section>
