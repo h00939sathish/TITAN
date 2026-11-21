@@ -1,0 +1,383 @@
+rules_version = '2';
+
+service cloud.firestore {
+  match /databases/{database}/documents {
+    // Pillar 0: Global default-deny safety net
+    match /{document=**} {
+      allow read, write: if false;
+    }
+
+    // Phase 3: Global hardened primitives
+    function isSignedIn() {
+      return request.auth != null;
+    }
+
+    function isVerifiedUser() {
+      return isSignedIn() && request.auth.token.email_verified == true;
+    }
+
+    function isOwner(userId) {
+      return isSignedIn() && request.auth.uid == userId;
+    }
+
+    function isVerifiedOwner(userId) {
+      return isVerifiedUser() && request.auth.uid == userId;
+    }
+
+    function isValidId(id) {
+      return id is string && id.size() >= 1 && id.size() <= 128 && id.matches('^[a-zA-Z0-9_\\-]+$');
+    }
+
+    function isValidDateString(val) {
+      return val is string && val.size() == 10 && val.matches('^\\d{4}-\\d{2}-\\d{2}$');
+    }
+
+    function isValidTaskId(id) {
+      return id is string && id.size() >= 7 && id.size() <= 32 && id.matches('^REM-\\d{3}$');
+    }
+
+    function incoming() {
+      return request.resource.data;
+    }
+
+    function existing() {
+      return resource.data;
+    }
+
+    // Pillar 1: Master Gate parent check (never called inside allow list)
+    function hasActiveWorkspace(userId) {
+      return exists(/databases/$(database)/documents/users/$(userId)) &&
+        get(/databases/$(database)/documents/users/$(userId)).data.uid == request.auth.uid;
+    }
+
+    // Pillar 2: Validation Blueprints matching firebase-blueprint.json verbatim
+    function isValidUserWorkspace(data, userId) {
+      return data.keys().hasAll([
+          'uid',
+          'displayName',
+          'paperStartDate',
+          'targetQualificationDays',
+          'createdAt',
+          'updatedAt'
+        ]) &&
+        data.keys().hasOnly([
+          'uid',
+          'displayName',
+          'paperStartDate',
+          'targetQualificationDays',
+          'createdAt',
+          'updatedAt'
+        ]) &&
+        data.uid is string &&
+        data.uid.size() >= 1 &&
+        data.uid.size() <= 128 &&
+        data.uid.matches('^[a-zA-Z0-9_\\-]+$') &&
+        data.uid == userId &&
+        data.uid == request.auth.uid &&
+        data.displayName is string &&
+        data.displayName.size() >= 1 &&
+        data.displayName.size() <= 100 &&
+        isValidDateString(data.paperStartDate) &&
+        data.targetQualificationDays is number &&
+        data.targetQualificationDays >= 1 &&
+        data.targetQualificationDays <= 365 &&
+        data.createdAt is timestamp &&
+        data.updatedAt is timestamp;
+    }
+
+    function isValidRemediationTask(data, userId, taskId) {
+      return data.keys().hasAll([
+          'taskId',
+          'ownerId',
+          'status',
+          'note',
+          'createdAt',
+          'updatedAt'
+        ]) &&
+        data.keys().hasOnly([
+          'taskId',
+          'ownerId',
+          'status',
+          'note',
+          'createdAt',
+          'updatedAt'
+        ]) &&
+        isValidTaskId(data.taskId) &&
+        data.taskId == taskId &&
+        data.ownerId is string &&
+        data.ownerId.size() >= 1 &&
+        data.ownerId.size() <= 128 &&
+        data.ownerId.matches('^[a-zA-Z0-9_\\-]+$') &&
+        data.ownerId == userId &&
+        data.ownerId == request.auth.uid &&
+        data.status is string &&
+        data.status.size() <= 16 &&
+        data.status in ['pending', 'in_progress', 'verified'] &&
+        data.note is string &&
+        data.note.size() <= 500 &&
+        data.createdAt is timestamp &&
+        data.updatedAt is timestamp;
+    }
+
+    function isValidQualificationEntry(data, userId, entryId) {
+      return data.keys().hasAll([
+          'entryId',
+          'ownerId',
+          'date',
+          'dayNumber',
+          'equityUsd',
+          'dailyPnlUsd',
+          'netSharpe',
+          'maxDrawdownPct',
+          'slippageCostUsd',
+          'guardTripsCount',
+          'allGuardsNominal',
+          'notes',
+          'createdAt',
+          'updatedAt'
+        ]) &&
+        data.keys().hasOnly([
+          'entryId',
+          'ownerId',
+          'date',
+          'dayNumber',
+          'equityUsd',
+          'dailyPnlUsd',
+          'netSharpe',
+          'maxDrawdownPct',
+          'slippageCostUsd',
+          'guardTripsCount',
+          'allGuardsNominal',
+          'notes',
+          'createdAt',
+          'updatedAt'
+        ]) &&
+        isValidDateString(data.entryId) &&
+        data.entryId == entryId &&
+        data.ownerId is string &&
+        data.ownerId.size() >= 1 &&
+        data.ownerId.size() <= 128 &&
+        data.ownerId.matches('^[a-zA-Z0-9_\\-]+$') &&
+        data.ownerId == userId &&
+        data.ownerId == request.auth.uid &&
+        isValidDateString(data.date) &&
+        data.date == entryId &&
+        data.dayNumber is number &&
+        data.dayNumber >= 1 &&
+        data.dayNumber <= 365 &&
+        data.equityUsd is number &&
+        data.equityUsd >= 0 &&
+        data.equityUsd <= 1000000000 &&
+        data.dailyPnlUsd is number &&
+        data.dailyPnlUsd >= -100000000 &&
+        data.dailyPnlUsd <= 100000000 &&
+        data.netSharpe is number &&
+        data.netSharpe >= -20 &&
+        data.netSharpe <= 20 &&
+        data.maxDrawdownPct is number &&
+        data.maxDrawdownPct >= 0 &&
+        data.maxDrawdownPct <= 100 &&
+        data.slippageCostUsd is number &&
+        data.slippageCostUsd >= 0 &&
+        data.slippageCostUsd <= 10000000 &&
+        data.guardTripsCount is number &&
+        data.guardTripsCount >= 0 &&
+        data.guardTripsCount <= 1000 &&
+        data.allGuardsNominal is bool &&
+        data.notes is string &&
+        data.notes.size() <= 500 &&
+        data.createdAt is timestamp &&
+        data.updatedAt is timestamp;
+    }
+
+    function isValidCloudAuditLog(data, userId, logId) {
+      return data.keys().hasAll([
+          'logId',
+          'ownerId',
+          'level',
+          'module',
+          'message',
+          'recordedTime',
+          'createdAt'
+        ]) &&
+        data.keys().hasOnly([
+          'logId',
+          'ownerId',
+          'level',
+          'module',
+          'message',
+          'recordedTime',
+          'createdAt'
+        ]) &&
+        data.logId is string &&
+        data.logId.size() >= 1 &&
+        data.logId.size() <= 64 &&
+        data.logId.matches('^[a-zA-Z0-9_\\-]+$') &&
+        data.logId == logId &&
+        data.ownerId is string &&
+        data.ownerId.size() >= 1 &&
+        data.ownerId.size() <= 128 &&
+        data.ownerId.matches('^[a-zA-Z0-9_\\-]+$') &&
+        data.ownerId == userId &&
+        data.ownerId == request.auth.uid &&
+        data.level is string &&
+        data.level.size() <= 8 &&
+        data.level in ['INFO', 'EXEC', 'RISK', 'WARN'] &&
+        data.module is string &&
+        data.module.size() >= 1 &&
+        data.module.size() <= 64 &&
+        data.message is string &&
+        data.message.size() >= 1 &&
+        data.message.size() <= 500 &&
+        data.recordedTime is string &&
+        data.recordedTime.size() >= 1 &&
+        data.recordedTime.size() <= 32 &&
+        data.createdAt is timestamp;
+    }
+
+    // Collection 1: Operator workspace root (/users/{userId})
+    match /users/{userId} {
+      allow get: if isOwner(userId) && isValidId(userId);
+      allow list: if false;
+
+      allow create: if isVerifiedOwner(userId) &&
+        isValidId(userId) &&
+        isValidUserWorkspace(incoming(), userId) &&
+        incoming().createdAt == request.time &&
+        incoming().updatedAt == request.time;
+
+      allow update: if isVerifiedOwner(userId) &&
+        isValidId(userId) &&
+        isValidUserWorkspace(incoming(), userId) &&
+        incoming().uid == existing().uid &&
+        incoming().createdAt == existing().createdAt &&
+        incoming().updatedAt == request.time &&
+        incoming().diff(existing()).affectedKeys().hasOnly([
+          'displayName',
+          'paperStartDate',
+          'targetQualificationDays',
+          'updatedAt'
+        ]);
+
+      allow delete: if isVerifiedOwner(userId) && isValidId(userId);
+
+      // Collection 2: Remediation checklist states (/users/{userId}/remediationTasks/{taskId})
+      match /remediationTasks/{taskId} {
+        allow get: if isOwner(userId) &&
+          isValidId(userId) &&
+          isValidTaskId(taskId) &&
+          hasActiveWorkspace(userId);
+
+        // Pillar 8: Secure list query without get()/exists()
+        allow list: if isOwner(userId) && resource.data.ownerId == request.auth.uid;
+
+        allow create: if isVerifiedOwner(userId) &&
+          isValidId(userId) &&
+          isValidTaskId(taskId) &&
+          isValidRemediationTask(incoming(), userId, taskId) &&
+          incoming().createdAt == request.time &&
+          incoming().updatedAt == request.time &&
+          hasActiveWorkspace(userId);
+
+        allow update: if isVerifiedOwner(userId) &&
+          isValidId(userId) &&
+          isValidTaskId(taskId) &&
+          isValidRemediationTask(incoming(), userId, taskId) &&
+          incoming().ownerId == existing().ownerId &&
+          incoming().taskId == existing().taskId &&
+          incoming().createdAt == existing().createdAt &&
+          incoming().updatedAt == request.time &&
+          hasActiveWorkspace(userId) &&
+          (
+            // Action: update task verification status and/or note
+            incoming().diff(existing()).affectedKeys().hasOnly(['status', 'note', 'updatedAt']) ||
+            incoming().diff(existing()).affectedKeys().hasOnly(['status', 'updatedAt']) ||
+            incoming().diff(existing()).affectedKeys().hasOnly(['note', 'updatedAt'])
+          );
+
+        allow delete: if isVerifiedOwner(userId) &&
+          isValidId(userId) &&
+          isValidTaskId(taskId) &&
+          hasActiveWorkspace(userId);
+      }
+
+      // Collection 3: 60-Day Paper Qualification Logbook (/users/{userId}/qualificationLogs/{entryId})
+      match /qualificationLogs/{entryId} {
+        allow get: if isOwner(userId) &&
+          isValidId(userId) &&
+          isValidDateString(entryId) &&
+          hasActiveWorkspace(userId);
+
+        // Pillar 8: Secure list query without get()/exists()
+        allow list: if isOwner(userId) && resource.data.ownerId == request.auth.uid;
+
+        allow create: if isVerifiedOwner(userId) &&
+          isValidId(userId) &&
+          isValidDateString(entryId) &&
+          isValidQualificationEntry(incoming(), userId, entryId) &&
+          incoming().createdAt == request.time &&
+          incoming().updatedAt == request.time &&
+          hasActiveWorkspace(userId);
+
+        allow update: if isVerifiedOwner(userId) &&
+          isValidId(userId) &&
+          isValidDateString(entryId) &&
+          isValidQualificationEntry(incoming(), userId, entryId) &&
+          incoming().ownerId == existing().ownerId &&
+          incoming().entryId == existing().entryId &&
+          incoming().date == existing().date &&
+          incoming().createdAt == existing().createdAt &&
+          incoming().updatedAt == request.time &&
+          hasActiveWorkspace(userId) &&
+          (
+            // Action: update daily metrics and notes
+            incoming().diff(existing()).affectedKeys().hasOnly([
+              'dayNumber',
+              'equityUsd',
+              'dailyPnlUsd',
+              'netSharpe',
+              'maxDrawdownPct',
+              'slippageCostUsd',
+              'guardTripsCount',
+              'allGuardsNominal',
+              'notes',
+              'updatedAt'
+            ]) ||
+            // Action: update notes only
+            incoming().diff(existing()).affectedKeys().hasOnly(['notes', 'updatedAt'])
+          );
+
+        allow delete: if isVerifiedOwner(userId) &&
+          isValidId(userId) &&
+          isValidDateString(entryId) &&
+          hasActiveWorkspace(userId);
+      }
+
+      // Collection 4: Immutable Cloud Audit Logs (/users/{userId}/auditLogs/{logId})
+      match /auditLogs/{logId} {
+        allow get: if isOwner(userId) &&
+          isValidId(userId) &&
+          isValidId(logId) &&
+          hasActiveWorkspace(userId);
+
+        // Pillar 8: Secure list query without get()/exists()
+        allow list: if isOwner(userId) && resource.data.ownerId == request.auth.uid;
+
+        allow create: if isVerifiedOwner(userId) &&
+          isValidId(userId) &&
+          isValidId(logId) &&
+          isValidCloudAuditLog(incoming(), userId, logId) &&
+          incoming().createdAt == request.time &&
+          hasActiveWorkspace(userId);
+
+        // Append-only audit logs cannot be modified
+        allow update: if false;
+
+        allow delete: if isVerifiedOwner(userId) &&
+          isValidId(userId) &&
+          isValidId(logId) &&
+          hasActiveWorkspace(userId);
+      }
+    }
+  }
+}

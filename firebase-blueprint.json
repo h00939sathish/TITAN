@@ -1,0 +1,264 @@
+{
+  "entities": {
+    "UserWorkspace": {
+      "title": "UserWorkspace",
+      "description": "Operator workspace root document anchoring private trading qualification and remediation records. Contains no PII.",
+      "type": "object",
+      "properties": {
+        "uid": {
+          "type": "string",
+          "maxLength": 128,
+          "pattern": "^[a-zA-Z0-9_\\-]+$",
+          "description": "Firebase Auth UID of the workspace owner."
+        },
+        "displayName": {
+          "type": "string",
+          "maxLength": 100,
+          "description": "Operator display name."
+        },
+        "paperStartDate": {
+          "type": "string",
+          "maxLength": 10,
+          "pattern": "^\\d{4}-\\d{2}-\\d{2}$",
+          "description": "ISO date when the 60-day paper qualification window began."
+        },
+        "targetQualificationDays": {
+          "type": "number",
+          "description": "Target number of verified paper trading days before live capital deployment (default 60)."
+        },
+        "createdAt": {
+          "type": "string",
+          "format": "date-time",
+          "description": "Server timestamp when workspace was created."
+        },
+        "updatedAt": {
+          "type": "string",
+          "format": "date-time",
+          "description": "Server timestamp when workspace was last updated."
+        }
+      },
+      "required": [
+        "uid",
+        "displayName",
+        "paperStartDate",
+        "targetQualificationDays",
+        "createdAt",
+        "updatedAt"
+      ]
+    },
+    "RemediationTaskState": {
+      "title": "RemediationTaskState",
+      "description": "Cloud-persisted completion state and operator notes for a Project-TITAN audit remediation task.",
+      "type": "object",
+      "properties": {
+        "taskId": {
+          "type": "string",
+          "maxLength": 32,
+          "pattern": "^REM-\\d{3}$",
+          "description": "Canonical Project-TITAN audit task identifier (e.g. REM-001)."
+        },
+        "ownerId": {
+          "type": "string",
+          "maxLength": 128,
+          "pattern": "^[a-zA-Z0-9_\\-]+$",
+          "description": "Firebase Auth UID of the workspace owner."
+        },
+        "status": {
+          "type": "string",
+          "enum": ["pending", "in_progress", "verified"],
+          "description": "Current remediation verification status."
+        },
+        "note": {
+          "type": "string",
+          "maxLength": 500,
+          "description": "Optional verification note or PR reference."
+        },
+        "createdAt": {
+          "type": "string",
+          "format": "date-time",
+          "description": "Server timestamp when record was created."
+        },
+        "updatedAt": {
+          "type": "string",
+          "format": "date-time",
+          "description": "Server timestamp when record was last updated."
+        }
+      },
+      "required": [
+        "taskId",
+        "ownerId",
+        "status",
+        "note",
+        "createdAt",
+        "updatedAt"
+      ]
+    },
+    "QualificationEntry": {
+      "title": "QualificationEntry",
+      "description": "Daily paper trading qualification checkpoint tracking net-of-cost performance and fail-closed guard integrity.",
+      "type": "object",
+      "properties": {
+        "entryId": {
+          "type": "string",
+          "maxLength": 32,
+          "pattern": "^\\d{4}-\\d{2}-\\d{2}$",
+          "description": "Document ID matching the ISO trading date."
+        },
+        "ownerId": {
+          "type": "string",
+          "maxLength": 128,
+          "pattern": "^[a-zA-Z0-9_\\-]+$",
+          "description": "Firebase Auth UID of the workspace owner."
+        },
+        "date": {
+          "type": "string",
+          "maxLength": 10,
+          "pattern": "^\\d{4}-\\d{2}-\\d{2}$",
+          "description": "ISO trading session date (YYYY-MM-DD)."
+        },
+        "dayNumber": {
+          "type": "number",
+          "description": "Sequential paper trading day number (1-365)."
+        },
+        "equityUsd": {
+          "type": "number",
+          "description": "End-of-session paper account equity in USD."
+        },
+        "dailyPnlUsd": {
+          "type": "number",
+          "description": "Net-of-cost daily P&L in USD."
+        },
+        "netSharpe": {
+          "type": "number",
+          "description": "Rolling net-of-cost Sharpe ratio."
+        },
+        "maxDrawdownPct": {
+          "type": "number",
+          "description": "Peak-to-trough drawdown percentage (0-100)."
+        },
+        "slippageCostUsd": {
+          "type": "number",
+          "description": "Estimated commissions, spread drag, and statutory friction in USD."
+        },
+        "guardTripsCount": {
+          "type": "number",
+          "description": "Count of fail-closed guard halts during the session."
+        },
+        "allGuardsNominal": {
+          "type": "boolean",
+          "description": "Whether all 4 sleeves passed fail-closed pre-flight invariants."
+        },
+        "notes": {
+          "type": "string",
+          "maxLength": 500,
+          "description": "Operator session notes or anomaly summary."
+        },
+        "createdAt": {
+          "type": "string",
+          "format": "date-time",
+          "description": "Server timestamp when entry was created."
+        },
+        "updatedAt": {
+          "type": "string",
+          "format": "date-time",
+          "description": "Server timestamp when entry was last updated."
+        }
+      },
+      "required": [
+        "entryId",
+        "ownerId",
+        "date",
+        "dayNumber",
+        "equityUsd",
+        "dailyPnlUsd",
+        "netSharpe",
+        "maxDrawdownPct",
+        "slippageCostUsd",
+        "guardTripsCount",
+        "allGuardsNominal",
+        "notes",
+        "createdAt",
+        "updatedAt"
+      ]
+    },
+    "CloudAuditLog": {
+      "title": "CloudAuditLog",
+      "description": "Immutable append-only cloud audit trail of operator risk controls, pre-flight runs, and order actions.",
+      "type": "object",
+      "properties": {
+        "logId": {
+          "type": "string",
+          "maxLength": 64,
+          "pattern": "^[a-zA-Z0-9_\\-]+$",
+          "description": "Unique log identifier."
+        },
+        "ownerId": {
+          "type": "string",
+          "maxLength": 128,
+          "pattern": "^[a-zA-Z0-9_\\-]+$",
+          "description": "Firebase Auth UID of the workspace owner."
+        },
+        "level": {
+          "type": "string",
+          "enum": ["INFO", "EXEC", "RISK", "WARN"],
+          "description": "Severity level of the audit event."
+        },
+        "module": {
+          "type": "string",
+          "maxLength": 64,
+          "description": "Subsystem that emitted the event."
+        },
+        "message": {
+          "type": "string",
+          "maxLength": 500,
+          "description": "Human-readable audit event message."
+        },
+        "recordedTime": {
+          "type": "string",
+          "maxLength": 32,
+          "description": "Formatted HH:MM:SS session timestamp."
+        },
+        "createdAt": {
+          "type": "string",
+          "format": "date-time",
+          "description": "Server timestamp when audit entry was recorded."
+        }
+      },
+      "required": [
+        "logId",
+        "ownerId",
+        "level",
+        "module",
+        "message",
+        "recordedTime",
+        "createdAt"
+      ]
+    }
+  },
+  "firestore": {
+    "/users/{userId}": {
+      "schema": {
+        "$ref": "#/entities/UserWorkspace"
+      },
+      "description": "Private operator workspace root document (strictly owner-scoped, no PII)."
+    },
+    "/users/{userId}/remediationTasks/{taskId}": {
+      "schema": {
+        "$ref": "#/entities/RemediationTaskState"
+      },
+      "description": "Cloud-synced Project-TITAN remediation checklist status documents."
+    },
+    "/users/{userId}/qualificationLogs/{entryId}": {
+      "schema": {
+        "$ref": "#/entities/QualificationEntry"
+      },
+      "description": "Daily 60-day paper qualification logbook entries."
+    },
+    "/users/{userId}/auditLogs/{logId}": {
+      "schema": {
+        "$ref": "#/entities/CloudAuditLog"
+      },
+      "description": "Immutable cloud audit trail for trading terminal actions."
+    }
+  }
+}
