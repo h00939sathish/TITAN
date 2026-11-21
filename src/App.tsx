@@ -20,9 +20,11 @@ import {
 import { INITIAL_REMEDIATION_TASKS } from './data/remediationData';
 import type {
   AuditLogEntry,
+  AutoEngineConfig,
   BrokerPortfolioPayload,
   CloudSyncStatus,
   ConnectionMode,
+  EngineStatusPayload,
   FillRecord,
   Holding,
   HoldingSortKey,
@@ -73,6 +75,7 @@ import {
 } from './components/SecondaryViews';
 import { RemediationRoadmap } from './components/RemediationRoadmap';
 import { QualificationLogbook } from './components/QualificationLogbook';
+import { AutoTradingEngineView } from './components/AutoTradingEngineView';
 import {
   computeQualificationSummary,
   INITIAL_QUALIFICATION_ENTRIES,
@@ -192,6 +195,10 @@ export default function App() {
     null
   );
   const [notice, setNotice] = useState<string | null>(null);
+  const [engineStatus, setEngineStatus] = useState<EngineStatusPayload | null>(
+    null
+  );
+  const [engineManualBusy, setEngineManualBusy] = useState(false);
 
   const applyServerPayload = useCallback((data: BrokerPortfolioPayload) => {
     setConnectionMode(data.connectionMode);
@@ -207,7 +214,7 @@ export default function App() {
     setKillSwitchEngaged(data.killSwitchEngaged);
   }, []);
 
-  // Hydrate initial authoritative portfolio & fail-closed guards from Express backend
+  // Hydrate initial authoritative portfolio, fail-closed guards & auto-engine status from Express backend
   useEffect(() => {
     let active = true;
     brokerApi
@@ -218,10 +225,30 @@ export default function App() {
       .catch(() => {
         // Keep deterministic local fallback if preview server is restarting
       });
+    brokerApi
+      .fetchEngineStatus()
+      .then((status) => {
+        if (active) setEngineStatus(status);
+      })
+      .catch(() => {});
     return () => {
       active = false;
     };
   }, [applyServerPayload]);
+
+  // Poll engine status every 15s while auto-loop is enabled or user is on the Auto Trading Loop tab
+  useEffect(() => {
+    const shouldPoll =
+      activeSection === 'engine' || Boolean(engineStatus?.config.enabled);
+    if (!shouldPoll) return;
+    const timer = window.setInterval(() => {
+      brokerApi
+        .fetchEngineStatus()
+        .then((status) => setEngineStatus(status))
+        .catch(() => {});
+    }, 15_000);
+    return () => window.clearInterval(timer);
+  }, [activeSection, engineStatus?.config.enabled]);
 
   useEffect(() => {
     const root = document.documentElement;
@@ -654,6 +681,49 @@ export default function App() {
     }
   };
 
+  const handleUpdateEngineConfig = async (patch: Partial<AutoEngineConfig>) => {
+    try {
+      const next = await brokerApi.updateEngineConfig(patch);
+      setEngineStatus(next);
+      showNotice(
+        `Auto-Loop updated: ${next.config.enabled ? 'ACTIVE' : 'STANDBY'} · ${
+          next.config.executionMode === 'live_paper'
+            ? 'Live Paper Orders'
+            : 'Dry-Run Signals'
+        } (${next.config.intervalMinutes}m).`
+      );
+    } catch (err) {
+      showNotice(
+        err instanceof Error ? err.message : 'Failed to update engine config.'
+      );
+    }
+  };
+
+  const handleRunEngineCycle = async (
+    sleeve: 'all' | 'sleeve-a' | 'sleeve-b' | 'sleeve-c' | 'sleeve-d'
+  ) => {
+    setEngineManualBusy(true);
+    try {
+      const { engine, portfolio } = await brokerApi.runEngineCycle(sleeve);
+      setEngineStatus(engine);
+      applyServerPayload(portfolio);
+      showNotice(
+        `Scan complete (${sleeve}): evaluated ${engine.latestSignals.length} live instruments (${engine.totalOrdersSubmitted} paper orders total).`
+      );
+      if (firebaseUser && portfolio.logs.length > 0) {
+        void appendCloudAuditLog(firebaseUser.uid, portfolio.logs[0]).catch(
+          () => {}
+        );
+      }
+    } catch (err) {
+      showNotice(
+        err instanceof Error ? err.message : 'Failed to run automated cycle.'
+      );
+    } finally {
+      setEngineManualBusy(false);
+    }
+  };
+
   return (
     <div className="min-h-screen flex bg-slate-50 dark:bg-[#0B0E14] text-slate-900 dark:text-[#E6EDF3]">
       <Sidebar
@@ -666,6 +736,7 @@ export default function App() {
         roadmapVerifiedCount={roadmapStats.verified}
         roadmapTotalCount={roadmapStats.total}
         qualificationDaysCount={qualificationSummary.nominalDays}
+        autoEngineEnabled={Boolean(engineStatus?.config.enabled)}
         cloudSyncStatus={cloudSyncStatus}
         userDisplayName={firebaseUser?.displayName ?? null}
         onSignIn={() => void handleSignInGoogle()}
@@ -763,6 +834,19 @@ export default function App() {
                 </div>
               </div>
             </>
+          )}
+
+          {activeSection === 'engine' && (
+            <AutoTradingEngineView
+              status={engineStatus}
+              connectionMode={connectionMode}
+              killSwitchEngaged={killSwitchEngaged}
+              approvalsPaused={approvalsPaused}
+              isRunningManual={engineManualBusy}
+              onUpdateConfig={handleUpdateEngineConfig}
+              onRunCycle={handleRunEngineCycle}
+              onNotify={showNotice}
+            />
           )}
 
           {activeSection === 'execution' && (

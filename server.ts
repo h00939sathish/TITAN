@@ -38,6 +38,10 @@ import {
   validateBracketInput,
   validateOrderInput,
 } from './src/utils/portfolioEngine.ts';
+import {
+  AutoTradingEngine,
+  verifyCronBearerToken,
+} from './src/server/autoTradingEngine.ts';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -1057,6 +1061,134 @@ async function startServer() {
   app.delete('/api/logs', requireControlGuard, async (_req, res) => {
     state.logs = [];
     res.json(await buildPortfolioPayload());
+  });
+
+  // Automated 4-Sleeve Trading Loop Engine (live market data -> real signals -> paper broker orders)
+  const autoEngine = new AutoTradingEngine({
+    getAlpacaCredentials,
+    fetchAlpacaJson,
+    syncBeforeCycle: async () => {
+      await buildPortfolioPayload();
+    },
+    getCurrentState: () => {
+      const currentMetrics = computePortfolioMetrics(
+        state.holdings,
+        state.snapshot,
+        state.riskSettings
+      );
+      return {
+        holdings: state.holdings,
+        equityUsd: currentMetrics.totalEquity,
+        pdtBreach: currentMetrics.pdtStatus === 'Breach',
+        killSwitchEngaged: state.killSwitchEngaged,
+        approvalsPaused: state.approvalsPaused,
+        riskSettings: state.riskSettings,
+        armedSleeveIds: new Set(
+          state.sleeves.filter((s) => s.armed).map((s) => s.id)
+        ),
+        simulatedFaults: state.simulatedFaults,
+      };
+    },
+    appendLog,
+    recordLocalPaperOrder: ({ symbol, side, qty, price }) => {
+      const created: WorkingOrder = {
+        id: `auto-${Date.now()}-${Math.random().toString(36).slice(2, 5)}`,
+        symbol,
+        side,
+        qty,
+        limitPrice: roundToCents(price),
+        orderType: 'MKT',
+        tif: symbol.includes('/') ? 'GTC' : 'DAY',
+        route: state.riskSettings.defaultRoute,
+        timestamp: formatTimeNow(),
+        status: state.approvalsPaused ? 'Staged' : 'Working',
+      };
+      state.workingOrders = [created, ...state.workingOrders];
+    },
+  });
+  autoEngine.startHeartbeat();
+
+  app.get('/api/engine/status', (_req, res) => {
+    res.json(autoEngine.getStatus());
+  });
+
+  app.post('/api/engine/config', requireControlGuard, (req, res) => {
+    const body = (req.body ?? {}) as Record<string, unknown>;
+    const next = autoEngine.updateConfig({
+      enabled: typeof body.enabled === 'boolean' ? body.enabled : undefined,
+      executionMode:
+        body.executionMode === 'dry_run' || body.executionMode === 'live_paper'
+          ? body.executionMode
+          : undefined,
+      intervalMinutes:
+        typeof body.intervalMinutes === 'number' ? body.intervalMinutes : undefined,
+      perSleeveAllocationPct:
+        typeof body.perSleeveAllocationPct === 'number'
+          ? body.perSleeveAllocationPct
+          : undefined,
+      maxTradeNotionalUsd:
+        typeof body.maxTradeNotionalUsd === 'number'
+          ? body.maxTradeNotionalUsd
+          : undefined,
+      enabledSleeves:
+        body.enabledSleeves && typeof body.enabledSleeves === 'object'
+          ? (body.enabledSleeves as {
+              'sleeve-a': boolean;
+              'sleeve-b': boolean;
+              'sleeve-c': boolean;
+              'sleeve-d': boolean;
+            })
+          : undefined,
+    });
+    res.json(next);
+  });
+
+  app.post('/api/engine/run', requireControlGuard, async (req, res) => {
+    const rawTarget = String(req.body?.sleeve ?? 'all');
+    const validTargets = new Set(['all', 'sleeve-a', 'sleeve-b', 'sleeve-c', 'sleeve-d']);
+    const target = (
+      validTargets.has(rawTarget) ? rawTarget : 'all'
+    ) as 'all' | 'sleeve-a' | 'sleeve-b' | 'sleeve-c' | 'sleeve-d';
+
+    try {
+      const engine = await autoEngine.runCycle('manual', target);
+      const portfolio = await buildPortfolioPayload();
+      res.json({ engine, portfolio });
+    } catch (err) {
+      res.status(409).json({
+        error: err instanceof Error ? err.message : 'Cycle execution failed.',
+      });
+    }
+  });
+
+  // Secured external 24/7 cron endpoint (GitHub Actions / Cloud Scheduler)
+  app.post('/api/engine/cron', async (req, res) => {
+    const authCheck = verifyCronBearerToken(req.get('Authorization'));
+    if (!authCheck.configured) {
+      res.status(503).json({
+        error: 'ENGINE_CRON_SECRET is not configured in server secrets.',
+      });
+      return;
+    }
+    if (!authCheck.authorized) {
+      res.status(401).json({ error: 'Invalid cron authorization token.' });
+      return;
+    }
+
+    const rawTarget = String(req.body?.sleeve ?? 'all');
+    const validTargets = new Set(['all', 'sleeve-a', 'sleeve-b', 'sleeve-c', 'sleeve-d']);
+    const target = (
+      validTargets.has(rawTarget) ? rawTarget : 'all'
+    ) as 'all' | 'sleeve-a' | 'sleeve-b' | 'sleeve-c' | 'sleeve-d';
+
+    try {
+      const engine = await autoEngine.runCycle('cron', target);
+      res.json({ ok: true, engine });
+    } catch (err) {
+      res.status(409).json({
+        error: err instanceof Error ? err.message : 'Cron cycle skipped.',
+      });
+    }
   });
 
   // Frontend serving: Vite middleware in development, static dist in production

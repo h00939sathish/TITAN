@@ -14,6 +14,7 @@ interface TopBarProps {
 
 const SECTION_LABELS: Record<NavSection, string> = {
   overview: 'Overview Dashboard',
+  engine: 'Auto Trading Loop',
   execution: 'Execution Blotter',
   holdings: 'Active Holdings',
   tournament: 'Alpha Tournament',

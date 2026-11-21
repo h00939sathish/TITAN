@@ -5,6 +5,7 @@ import {
   CalendarCheck,
   ClipboardCheck,
   Cloud,
+  Cpu,
   Layers,
   LayoutDashboard,
   LogIn,
@@ -33,6 +34,7 @@ interface SidebarProps {
   roadmapVerifiedCount: number;
   roadmapTotalCount: number;
   qualificationDaysCount: number;
+  autoEngineEnabled: boolean;
   cloudSyncStatus: CloudSyncStatus;
   userDisplayName: string | null;
   onSignIn: () => void;
@@ -57,6 +59,7 @@ const NAV_ITEMS: {
   icon: typeof LayoutDashboard;
 }[] = [
   { id: 'overview', label: 'Overview', icon: LayoutDashboard },
+  { id: 'engine', label: 'Auto Trading Loop', icon: Cpu },
   { id: 'execution', label: 'Execution Blotter', icon: Activity },
   { id: 'holdings', label: 'Active Holdings', icon: Briefcase },
   { id: 'tournament', label: 'Alpha Tournament', icon: Layers },
@@ -77,6 +80,7 @@ export function Sidebar({
   roadmapVerifiedCount,
   roadmapTotalCount,
   qualificationDaysCount,
+  autoEngineEnabled,
   cloudSyncStatus,
   userDisplayName,
   onSignIn,
@@ -90,6 +94,7 @@ export function Sidebar({
   onCloseMobile,
 }: SidebarProps) {
   const getCountHint = (id: NavSection): string | null => {
+    if (id === 'engine') return autoEngineEnabled ? 'LIVE' : 'IDLE';
     if (id === 'holdings') return String(holdingsCount);
     if (id === 'execution') return String(workingOrdersCount);
     if (id === 'tournament') return `${armedSleevesCount}/${totalSleevesCount}`;

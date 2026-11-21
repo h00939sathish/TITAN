@@ -1,5 +1,7 @@
 import type {
+  AutoEngineConfig,
   BrokerPortfolioPayload,
+  EngineStatusPayload,
   OrderSide,
   RiskSettings,
   TimeInForce,
@@ -183,5 +185,35 @@ export const brokerApi = {
       headers: CONTROL_HEADERS,
     });
     return handleResponse<BrokerPortfolioPayload>(res);
+  },
+
+  async fetchEngineStatus(): Promise<EngineStatusPayload> {
+    const res = await fetch('/api/engine/status', { cache: 'no-store' });
+    return handleResponse<EngineStatusPayload>(res);
+  },
+
+  async updateEngineConfig(
+    patch: Partial<AutoEngineConfig>
+  ): Promise<EngineStatusPayload> {
+    const res = await fetch('/api/engine/config', {
+      method: 'POST',
+      headers: CONTROL_HEADERS,
+      body: JSON.stringify(patch),
+    });
+    return handleResponse<EngineStatusPayload>(res);
+  },
+
+  async runEngineCycle(
+    sleeve: 'all' | 'sleeve-a' | 'sleeve-b' | 'sleeve-c' | 'sleeve-d' = 'all'
+  ): Promise<{ engine: EngineStatusPayload; portfolio: BrokerPortfolioPayload }> {
+    const res = await fetch('/api/engine/run', {
+      method: 'POST',
+      headers: CONTROL_HEADERS,
+      body: JSON.stringify({ sleeve }),
+    });
+    return handleResponse<{
+      engine: EngineStatusPayload;
+      portfolio: BrokerPortfolioPayload;
+    }>(res);
   },
 };

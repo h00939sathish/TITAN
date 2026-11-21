@@ -1,5 +1,6 @@
 export type NavSection =
   | 'overview'
+  | 'engine'
   | 'execution'
   | 'holdings'
   | 'tournament'
@@ -259,4 +260,80 @@ export interface QualificationSummary {
   latestGuardsNominal: boolean;
   qualifiedForLive: boolean;
 }
+
+export type EngineExecutionMode = 'dry_run' | 'live_paper';
+export type SignalAction = 'BUY' | 'SELL' | 'HOLD' | 'BLOCKED';
+export type EngineTriggerSource = 'manual' | 'auto_loop' | 'cron';
+
+export interface OhlcBar {
+  timestamp: string;
+  open: number;
+  high: number;
+  low: number;
+  close: number;
+  volume: number;
+}
+
+export interface AutoEngineConfig {
+  enabled: boolean;
+  executionMode: EngineExecutionMode;
+  intervalMinutes: number;
+  perSleeveAllocationPct: number;
+  maxTradeNotionalUsd: number;
+  enabledSleeves: {
+    'sleeve-a': boolean;
+    'sleeve-b': boolean;
+    'sleeve-c': boolean;
+    'sleeve-d': boolean;
+  };
+}
+
+export interface LiveSignalEvaluation {
+  sleeveId: 'sleeve-a' | 'sleeve-b' | 'sleeve-c' | 'sleeve-d';
+  sleeveCode: string;
+  symbol: string;
+  dataSource: string;
+  barCount: number;
+  barSpacingMinutes: number | null;
+  lastPrice: number | null;
+  indicatorLabel: string;
+  indicatorSummary: string;
+  action: SignalAction;
+  targetNotionalUsd: number;
+  orderQty: number;
+  reason: string;
+  guardPassed: boolean;
+  evaluatedAtUtc: string;
+}
+
+export interface EngineOrderExecution {
+  id: string;
+  timestampUtc: string;
+  trigger: EngineTriggerSource;
+  executionMode: EngineExecutionMode;
+  sleeveId: string;
+  sleeveCode: string;
+  symbol: string;
+  action: SignalAction;
+  qty: number;
+  price: number | null;
+  notionalUsd: number;
+  status: 'SUBMITTED' | 'DRY_RUN' | 'HOLD' | 'BLOCKED' | 'ERROR';
+  brokerOrderId?: string;
+  detail: string;
+}
+
+export interface EngineStatusPayload {
+  config: AutoEngineConfig;
+  isRunningCycle: boolean;
+  lastRunAtUtc: string | null;
+  nextRunAtUtc: string | null;
+  totalCyclesRun: number;
+  totalOrdersSubmitted: number;
+  cronSecretConfigured: boolean;
+  paperEndpointVerified: boolean;
+  latestSignals: LiveSignalEvaluation[];
+  runHistory: EngineOrderExecution[];
+}
+
 
